@@ -1,0 +1,2 @@
+Steam Game Launcher is an independent app, not affiliated with Valve, Apple, or Sony.
+Game artwork belongs to its respective owners and is loaded from Steam's local cache or public CDN.
