@@ -89,6 +89,9 @@ struct ContentView: View {
                 enteredFullscreen = false; activity.reset()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { notification in
+            if notification.object as? NSWindow === window { isFullscreen = true }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
             guard notification.object as? NSWindow === window else { return }
             isFullscreen = true
@@ -117,6 +120,7 @@ struct ContentView: View {
     // Keeping this header in the content hierarchy lets the material sample art.
     private var fullscreenToolbar: some View {
         HStack(spacing: 14) {
+            FullscreenWindowControls(window: window).frame(width: 60, height: 20)
             if store.selectedGame != nil && !store.showingSetup {
                 Button { store.selectedGame = nil } label: {
                     HStack(spacing: 7) { Image(systemName: "chevron.left"); Text("返回游戏库") }
