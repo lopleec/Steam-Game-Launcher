@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var activity = ActivityMonitor()
     @State private var window: NSWindow?
     @State private var enteredFullscreen = false
+    @State private var isFullscreen = false
     @State private var pendingExitFullscreen = false
     @State private var wallLeavingFullscreen = false
     @State private var topInset: CGFloat = 0
@@ -44,13 +45,20 @@ struct ContentView: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            if isFullscreen && !presentingWall { fullscreenToolbar }
+        }
+        .onPreferenceChange(FullscreenToolbarHeight.self) { height in
+            if isFullscreen && height > 0 && abs(topInset - height) > 0.5 { topInset = height }
+        }
         .ignoresSafeArea(.container, edges: .top)
         .toolbar { windowToolbar }
-        .toolbar(presentingWall ? .hidden : .visible, for: .windowToolbar)
+        .toolbar(presentingWall || isFullscreen ? .hidden : .visible, for: .windowToolbar)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .frame(minWidth: 900, minHeight: 640)
-        .background(WindowReader(hidesToolbar: presentingWall, onWindow: { window in
+        .background(WindowReader(hidesToolbar: presentingWall || isFullscreen, onWindow: { window in
             self.window = window
+            isFullscreen = window.styleMask.contains(.fullScreen)
             store.mainWindow = window
             activity.start(store: store, window: window)
         }, onTopInset: { inset in
@@ -82,12 +90,15 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
-            if notification.object as? NSWindow === window, pendingExitFullscreen {
+            guard notification.object as? NSWindow === window else { return }
+            isFullscreen = true
+            if pendingExitFullscreen {
                 pendingExitFullscreen = false; window?.toggleFullScreen(nil)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
             if notification.object as? NSWindow === window {
+                isFullscreen = false
                 wallLeavingFullscreen = false; pendingExitFullscreen = false; enteredFullscreen = false
             }
         }
@@ -101,6 +112,47 @@ struct ContentView: View {
         .alert("暂时无法完成", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("好", role: .cancel) { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
+    }
+    // AppKit places a native fullscreen toolbar in a separate opaque window.
+    // Keeping this header in the content hierarchy lets the material sample art.
+    private var fullscreenToolbar: some View {
+        HStack(spacing: 14) {
+            if store.selectedGame != nil && !store.showingSetup {
+                Button { store.selectedGame = nil } label: {
+                    HStack(spacing: 7) { Image(systemName: "chevron.left"); Text("返回游戏库") }
+                        .font(.system(size: 12, weight: .medium)).frame(height: 34).contentShape(Rectangle())
+                }.buttonStyle(.plain).keyboardShortcut(.escape, modifiers: [])
+            } else {
+                Text("Steam Game Launcher").font(.system(size: 13, weight: .semibold)).tracking(-0.25)
+            }
+            Spacer(minLength: 0)
+            if !store.showingSetup {
+                if let game = store.selectedGame {
+                    Button { if game.isSteam { store.action(.store, game: game) } else { store.reveal(game) } } label: {
+                        Label(game.isSteam ? "Steam 商店" : "在 Finder 中显示", systemImage: "arrow.up.right")
+                            .font(.system(size: 12)).frame(height: 34).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                } else {
+                    searchField
+                    moreMenu
+                    SettingsLink {
+                        Image(systemName: "gearshape").font(.system(size: 16)).frame(width: 34, height: 34).contentShape(Rectangle())
+                    }.buttonStyle(.plain).help("设置 ⌘,")
+                }
+            }
+        }
+        .frame(minHeight: 34)
+        .overlay {
+            if store.showingSetup {
+                Text("初始设置").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+            } else if let game = store.selectedGame {
+                Text(game.name).font(.system(size: 12, weight: .medium)).lineLimit(1).frame(maxWidth: 280)
+            } else { destinationButtons }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: FullscreenToolbarHeight.self, value: geometry.size.height)
+        })
     }
     @ToolbarContentBuilder private var windowToolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -185,3 +237,8 @@ struct ContentView: View {
 }
 
 extension Notification.Name { static let focusGameSearch = Notification.Name("focusGameSearch") }
+
+private struct FullscreenToolbarHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
